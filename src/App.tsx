@@ -53,6 +53,7 @@ function App() {
       setIsConnected(true);
       setIsLoading(false);
       setAudioError(null);
+      setTranscript([]); // Clear transcript for new conversation
     });
 
     retellClient.on('call_ended', () => {
@@ -75,16 +76,61 @@ function App() {
 
     retellClient.on('update', (update) => {
       console.log('📩 Update received:', update);
+      console.log('📝 Transcript length from Retell:', update.transcript?.length);
       
       // Handle transcript updates
-      if (update.transcript) {
+      if (update.transcript && Array.isArray(update.transcript)) {
         const transcriptList = update.transcript;
+        
         // Convert Retell transcript format to our app format
-        const formattedTranscript = transcriptList.map((item: any) => ({
+        const newMessages = transcriptList.map((item: any) => ({
           role: item.role,
           text: item.content,
         }));
-        setTranscript(formattedTranscript);
+        
+        // Retell sends a sliding window of last ~5 messages (updates in real-time)
+        // Strategy: Find where Retell's window starts in our history, keep everything before that
+        setTranscript((prevTranscript) => {
+          // If we have no previous messages, just use the new ones
+          if (prevTranscript.length === 0) {
+            console.log('📊 Starting fresh with', newMessages.length, 'messages');
+            return newMessages;
+          }
+          
+          // Find where the current Retell window begins in our stored transcript
+          // by looking for the first message from Retell's window in our history
+          const firstNewMsg = newMessages[0];
+          let windowStartIndex = prevTranscript.findIndex(
+            (msg: { role: string; text: string }) => 
+              msg.role === firstNewMsg.role && 
+              msg.text === firstNewMsg.text
+          );
+          
+          // If we can't find an exact match, try to find where it starts by checking prefixes
+          // (in case the message was still being transcribed)
+          if (windowStartIndex === -1 && firstNewMsg.text.length > 10) {
+            windowStartIndex = prevTranscript.findIndex(
+              (msg: { role: string; text: string }) => 
+                msg.role === firstNewMsg.role && 
+                (firstNewMsg.text.startsWith(msg.text) || msg.text.startsWith(firstNewMsg.text))
+            );
+          }
+          
+          // Keep all messages before where Retell's window starts (those are finalized)
+          // Then append Retell's current window
+          const finalizedMessages = windowStartIndex > 0 
+            ? prevTranscript.slice(0, windowStartIndex)
+            : (newMessages.length < prevTranscript.length ? prevTranscript.slice(0, -newMessages.length) : []);
+          
+          const updatedTranscript = [...finalizedMessages, ...newMessages];
+          
+          console.log('💬 Previous total:', prevTranscript.length);
+          console.log('✅ Finalized (locked in):', finalizedMessages.length);
+          console.log('🔄 Current window:', newMessages.length);
+          console.log('📊 Total now:', updatedTranscript.length);
+          
+          return updatedTranscript;
+        });
 
         // Check for PHQ-9 score in the last assistant message
         const lastAssistantMessage = transcriptList
@@ -128,10 +174,16 @@ function App() {
     };
   }, [retellClient]);
 
-  // Auto-scroll to bottom when transcript updates
+  // Auto-scroll to bottom when transcript updates (only if user is already at bottom)
   useEffect(() => {
     if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+      const container = chatContainerRef.current;
+      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+      
+      // Only auto-scroll if user is already near the bottom (within 100px)
+      if (isNearBottom) {
+        container.scrollTop = container.scrollHeight;
+      }
     }
   }, [transcript]);
 
@@ -389,34 +441,67 @@ function App() {
       {/* Bottom Right - Chat */}
       <div
         style={{
-          height: '80vh',
+          height: '85vh',
           position: 'fixed',
           bottom: '20px',
           right: '20px',
           zIndex: 1000,
+          width: '420px',
         }}
-        className="w-80 bg-white bg-opacity-20 shadow-2xl border border-white border-opacity-30 backdrop-blur-lg rounded-xl"
+        className="bg-white bg-opacity-20 shadow-2xl border border-white border-opacity-30 backdrop-blur-lg rounded-2xl"
       >
         <div className="h-full flex flex-col">
-          <div className="bg-white bg-opacity-30 p-3 border-b border-white border-opacity-20 rounded-t-xl backdrop-blur-sm">
-            <h3 className="text-sm font-semibold text-white">Conversation</h3>
+          {/* Header */}
+          <div className="bg-gradient-to-r from-blue-500 to-purple-600 bg-opacity-90 p-4 border-b border-white border-opacity-20 rounded-t-2xl backdrop-blur-sm">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                <h3 className="text-base font-bold text-white">Conversation</h3>
+              </div>
+              {transcript.length > 0 && (
+                <span className="text-xs text-white bg-white bg-opacity-20 px-2 py-1 rounded-full">
+                  {transcript.length} messages
+                </span>
+              )}
+            </div>
           </div>
-          <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-3">
+          
+          {/* Chat Messages Container */}
+          <div 
+            ref={chatContainerRef} 
+            className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-3 scrollbar-thin scrollbar-thumb-white scrollbar-track-transparent"
+            style={{
+              scrollBehavior: 'smooth',
+              overflowY: 'auto',
+              height: 'auto',
+            }}
+          >
             {transcript.length === 0 ? (
-              <p className="text-white text-opacity-70 text-center text-sm">Conversation will appear here...</p>
+              <div className="h-full flex items-center justify-center">
+                <div className="text-center">
+                  <div className="mb-3">
+                    <svg className="w-12 h-12 text-white text-opacity-50 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                    </svg>
+                  </div>
+                  <p className="text-white text-opacity-70 text-sm">Conversation will appear here...</p>
+                </div>
+              </div>
             ) : (
               transcript.map((msg, i) => (
-                <div key={i} className="mb-3">
+                <div key={`msg-${i}-${msg.text.substring(0, 20)}`} className="animate-fadeIn">
                   <div className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                     <div
-                      className={`max-w-xs px-3 py-2 rounded-lg text-sm ${
+                      className={`max-w-[85%] px-4 py-3 rounded-2xl text-sm shadow-lg transition-all duration-200 hover:scale-[1.02] ${
                         msg.role === 'user'
-                          ? 'bg-blue-500 bg-opacity-80 text-white rounded-br-none backdrop-blur-sm'
-                          : 'bg-white bg-opacity-80 text-gray-800 rounded-bl-none backdrop-blur-sm'
+                          ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-br-none backdrop-blur-sm'
+                          : 'bg-white bg-opacity-95 text-gray-800 rounded-bl-none backdrop-blur-sm border border-gray-200'
                       }`}
                     >
-                      <div className="text-xs opacity-75 mb-1">{msg.role === 'user' ? 'You' : 'Assistant'}</div>
-                      <div>{msg.text}</div>
+                      <div className={`text-xs font-semibold mb-1 ${msg.role === 'user' ? 'text-blue-100' : 'text-gray-500'}`}>
+                        {msg.role === 'user' ? '👤 You' : '🤖 Assistant'}
+                      </div>
+                      <div className="leading-relaxed whitespace-pre-wrap break-words">{msg.text}</div>
                     </div>
                   </div>
                 </div>
