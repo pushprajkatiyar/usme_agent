@@ -1,5 +1,5 @@
 {
-  "name": "phq9-assessment",
+  "name": "usme-agents",
   "version": "0.1.0",
   "private": true,
   "dependencies": {
@@ -21,11 +21,10 @@
   },
   "scripts": {
     "start": "react-scripts start",
-    "server": "node server.js",
-    "dev": "concurrently \"npm start\" \"npm run server\"",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "vercel-build": "react-scripts build"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

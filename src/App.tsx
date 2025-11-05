@@ -198,9 +198,9 @@ function App() {
         await initializeAudio();
       }
       
-      // Fetch access token from backend
+      // Fetch access token from backend (works both locally and on Vercel)
       console.log('🔑 Fetching access token from backend...');
-      const response = await fetch('http://localhost:3001/api/create-web-call', {
+      const response = await fetch('/api/create-web-call', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -237,7 +237,7 @@ function App() {
     } catch (error) {
       console.error('❗ Failed to start call:', error);
       setIsLoading(false);
-      setAudioError('Failed to start call. Please make sure the backend server is running on port 3001.');
+      setAudioError('Failed to start call. Please check your internet connection and try again.');
     }
   };
 
