@@ -132,7 +132,7 @@ function App() {
           return updatedTranscript;
         });
 
-        // Check for PHQ-9 score in the last assistant message
+        // Check for USME score in the last assistant message
         const lastAssistantMessage = transcriptList
           .filter((item: any) => item.role === 'agent')
           .pop();
